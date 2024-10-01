@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en-us">
+    <head>
+        <title>Sonaris</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no"/>
+        <link rel="stylesheet" href="assets/css/style.css">
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@docsearch/css@3">
+        <link href="assets/dist/css/bootstrap.min.css" rel="stylesheet">
+        <script src="assets/js/color-modes.js"></script>
+    </head>
+    <body>
+        <div id="main-container">
+            <textarea name="textarea" id="rxData" style="width:300px;height:100px;" disabled></textarea><br>
+            
+            <button id="captureStart" class="btn btn-bd-primary">Start</button>
+            <button id="captureStop" class="btn btn-bd-primary" hidden>Stop</button>
+            
+            <br><br>
+
+            <div class="cell-version"></div>
+        </div>
+
+        <script type="text/javascript" src="assets/js/sonaris.js"></script>
+        <script type="text/javascript">
+            window.AudioContext = window.AudioContext || window.webkitAudioContext;
+            window.OfflineAudioContext = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+
+            var context = null;
+            var recorder = null;
+
+            // the ggwave module instance
+            var ggwave = null;
+            var parameters = null;
+            var instance = null;
+
+            // instantiate the ggwave instance
+            ggwave_factory().then(function(obj) {
+                ggwave = obj;
+            });
+
+            var txData = document.getElementById("txData");
+            var rxData = document.getElementById("rxData");
+            var captureStart = document.getElementById("captureStart");
+            var captureStop = document.getElementById("captureStop");
+
+            // helper function
+            function convertTypedArray(src, type) {
+                var buffer = new ArrayBuffer(src.byteLength);
+                var baseView = new src.constructor(buffer).set(src);
+                return new type(buffer);
+            }
+
+            // initialize audio context and sonaris
+            function init() {
+                if (!context) {
+                    context = new AudioContext({sampleRate: 48000});
+
+                    parameters = ggwave.getDefaultParameters();
+                    parameters.sampleRateInp = context.sampleRate;
+                    parameters.sampleRateOut = context.sampleRate;
+                    instance = ggwave.init(parameters);
+                }
+            }
+
+            //
+            // Rx
+            //
+            captureStart.addEventListener("click", function () {
+                init();
+
+                let constraints = {
+                    audio: {
+                        echoCancellation: false,
+                        autoGainControl: false,
+                        noiseSuppression: false
+                    }
+                };
+
+                navigator.mediaDevices.getUserMedia(constraints).then(function (e) {
+                    mediaStream = context.createMediaStreamSource(e);
+
+                    var bufferSize = 16*1024;
+                    var numberOfInputChannels = 1;
+                    var numberOfOutputChannels = 1;
+
+                    if (context.createScriptProcessor) {
+                        recorder = context.createScriptProcessor(
+                                bufferSize,
+                                numberOfInputChannels,
+                                numberOfOutputChannels);
+                    } else {
+                        recorder = context.createJavaScriptNode(
+                                bufferSize,
+                                numberOfInputChannels,
+                                numberOfOutputChannels);
+                    }
+
+                    recorder.onaudioprocess = function (e) {
+                        var source = e.inputBuffer;
+                        var res = ggwave.decode(instance, convertTypedArray(new Float32Array(source.getChannelData(0)), Int8Array));
+                        if (res) {
+                            rxData.value = res;
+                            console.log(res); //receive event
+
+
+
+
+                        }
+                    }
+
+                    mediaStream.connect(recorder);
+                    recorder.connect(context.destination);
+                }).catch(function (e) {
+                    console.error(e);
+                });
+
+                rxData.value = 'Listening ...';
+                captureStart.hidden = true;
+                captureStop.hidden = false;
+            });
+
+            captureStop.addEventListener("click", function () {
+                if (recorder) {
+                    recorder.disconnect(context.destination);
+                    mediaStream.disconnect(recorder);
+                    recorder = null;
+                }
+
+                rxData.value = '';
+                captureStart.hidden = false;
+                captureStop.hidden = true;
+            });
+
+            captureStop.click();
+        </script>
+    </body>
+</html>
